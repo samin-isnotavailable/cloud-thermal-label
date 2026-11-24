@@ -147,7 +147,6 @@ export function buildLabel(cfg, data, opts = {}) {
   const total = fixed + nBar * barH;
   const gap = Math.max(gapMin, Math.floor((H - total) / (els.length + 1)));
   const bars = [], texts = [], warnings = [];
-  let minModule = 9;
   const thin = [];
   const stretched = [];
   let y = Math.floor((H - total - gap * (els.length - 1)) / 2);
@@ -163,7 +162,6 @@ export function buildLabel(cfg, data, opts = {}) {
         const sm = stretchModule(v, W, opts.stretch);
         if (sm) { m = sm; stretched.push(sm); }
       }
-      minModule = Math.min(minModule, m);
       if (m === 1) thin.push(name);
       const wd = code128Widths(v);
       const x0 = Math.floor((W - wd.reduce((a, b) => a + b, 0) * m) / 2);
@@ -186,7 +184,7 @@ export function buildLabel(cfg, data, opts = {}) {
   });
   if (thin.length) warnings.push(`Thinnest bars on the ${thin.join(" and ")} barcode: it scans slower on a 203 dpi printer.`);
   if (stretched.length) warnings.push(`A barcode is stretched ${stretched[0]}x. Scan-test it before a big batch.`);
-  return { W, H, bars, texts, warnings, stretched, minModule: minModule === 9 ? null : minModule };
+  return { W, H, bars, texts, warnings, stretched };
 }
 
 export function tsplHeader(cfg, s) {

@@ -1,4 +1,4 @@
-import { buildLabel, toSvg, checkChars, DEFAULT_TEMPLATE, stretchModule } from "/engine.js";
+import { buildLabel, toSvg, checkChars, DEFAULT_TEMPLATE } from "/engine.js";
 
 // ---------- tiny helpers ----------
 const $app = document.getElementById("app");
@@ -116,7 +116,7 @@ function showLogin(setup) {
     h("h1", {}, "EZ Label Printing"),
     h("p", { class: "muted" }, setup ? "First time here. Create the admin account. Do this now, before anyone else opens this page." : "Sign in to print labels."),
     h("div", { class: "card" }, field(setup ? "Your name" : "Name", name), h("div", { style: "height:10px" }),
-      field(setup ? "Password (at least 6 characters)" : "Password", pw), err,
+      field(setup ? "Password (at least 8 characters)" : "Password", pw), err,
       h("button", { class: "btn primary big", style: "width:100%;margin-top:14px", onclick: go }, setup ? "Create admin account" : "Sign in"))));
   name.focus();
 }
@@ -517,7 +517,7 @@ async function adminUsers(root) {
     h("div", { class: "tablewrap" }, h("table", {}, h("tbody", {}, users.map((u) => h("tr", {},
       h("td", {}, u.name), h("td", {}, u.role === "admin" ? h("span", { class: "pill" }, "admin") : "staff"), h("td", {}, u.active ? "" : h("span", { class: "pill bad" }, "disabled")),
       h("td", { style: "text-align:right;white-space:nowrap" },
-        h("button", { class: "btn small", onclick: guard(async () => { const p = await ask(`New password for ${u.name}`, "Password (at least 4 characters)", { ok: "Change" }); if (p) { await api("PUT", `/api/users/${u.id}`, { password: p }); toast("Password changed"); } }) }, "Reset password"), " ",
+        h("button", { class: "btn small", onclick: guard(async () => { const p = await ask(`New password for ${u.name}`, "Password (at least 8 characters)", { ok: "Change" }); if (p) { await api("PUT", `/api/users/${u.id}`, { password: p }); toast("Password changed"); } }) }, "Reset password"), " ",
         u.id !== S.user.id ? h("button", { class: "btn small " + (u.active ? "danger" : ""), onclick: guard(async () => { await api("PUT", `/api/users/${u.id}`, { active: !u.active }); showMain(); }) }, u.active ? "Disable" : "Enable") : null)))))),
     h("h3", { style: "margin-top:16px" }, "Add a staff member"),
     h("div", { class: "row" }, field("Name", name), field("Password", pw), field("Role", sel([["staff", "Staff"], ["admin", "Admin"]], role, (v) => { role = v; })),

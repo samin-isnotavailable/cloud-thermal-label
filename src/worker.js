@@ -6,6 +6,7 @@ const MAX_LABELS = 500;
 const CHUNK = 10;                 // labels sent to the printer per agent poll (keeps each request under the free 10 ms CPU limit)
 const ONLINE_SECONDS = 40;        // agent counts as online if seen within this time
 const POLL_MS = 4000;
+const MIN_PASSWORD = 8;           // the app is public; lockout still allows ~1,440 guesses a day per name
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE, salt TEXT NOT NULL, hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'staff', active INTEGER NOT NULL DEFAULT 1, fails INTEGER NOT NULL DEFAULT 0, locked_until TEXT, created TEXT NOT NULL DEFAULT (datetime('now')))`,
@@ -134,6 +135,15 @@ async function insertPrints(env, jobId, items) {
   await env.DB.batch(stmts);
 }
 
+// A job and its labels. If adding the labels fails, the empty job is removed again.
+async function createJob(env, printerId, userId, templateId, extraJson, items, reprint) {
+  const job = await env.DB.prepare(`INSERT INTO jobs(printer_id, user_id, template_id, extra, total, reprint) VALUES(?,?,?,?,?,?) RETURNING id`)
+    .bind(printerId, userId, templateId, extraJson, items.length, reprint).first();
+  try { await insertPrints(env, job.id, items); }
+  catch (e) { await env.DB.prepare(`DELETE FROM jobs WHERE id = ?`).bind(job.id).run(); throw e; }
+  return job.id;
+}
+
 async function findDuplicates(env, serials) {
   const found = new Map();
   for (const part of chunks(serials, 90)) {
@@ -193,7 +203,7 @@ route("POST", "/api/setup", "none", async ({ env, request }) => {
   const b = await body(request);
   const name = str(b.name, 40), password = str(b.password, 100);
   if (!name) throw new HttpError(400, "Enter a name");
-  if (password.length < 6) throw new HttpError(400, "Password must be at least 6 characters");
+  if (password.length < MIN_PASSWORD) throw new HttpError(400, `Password must be at least ${MIN_PASSWORD} characters`);
   const salt = randHex(16);
   const r = await env.DB.prepare(`INSERT INTO users(name, salt, hash, role) VALUES(?, ?, ?, 'admin') RETURNING id`).bind(name, salt, await hashPassword(password, salt)).first();
   await env.DB.batch([
@@ -281,11 +291,8 @@ route("POST", "/api/print", "user", async ({ env, request, user }) => {
       });
     }
   }
-  const job = await env.DB.prepare(`INSERT INTO jobs(printer_id, user_id, template_id, extra, total) VALUES(?,?,?,?,?) RETURNING id`)
-    .bind(printer.id, user.id, tpl.id, JSON.stringify(extra), items.length).first();
-  try { await insertPrints(env, job.id, items); }
-  catch (e) { await env.DB.prepare(`DELETE FROM jobs WHERE id = ?`).bind(job.id).run(); throw e; }
-  return json({ job_id: job.id, total: items.length });
+  const jobId = await createJob(env, printer.id, user.id, tpl.id, JSON.stringify(extra), items, 0);
+  return json({ job_id: jobId, total: items.length });
 });
 
 route("GET", "/api/jobs/:id", "user", async ({ env, params }) => {
@@ -307,7 +314,7 @@ route("POST", "/api/jobs/:id/cancel", "user", async ({ env, params }) => {
 
 route("GET", "/api/history", "user", async ({ env, url }) => {
   const q = str(url.searchParams.get("q"), 60);
-  const limit = Math.min(+url.searchParams.get("limit") || 100, 300);
+  const limit = Math.max(1, Math.min(+url.searchParams.get("limit") || 100, 300));   // SQLite treats a negative LIMIT as no limit
   const where = q ? `WHERE p.serial LIKE ? OR p.model LIKE ?` : "";
   const binds = q ? [`%${q}%`, `%${q}%`, limit] : [limit];
   const r = await env.DB.prepare(
@@ -338,10 +345,8 @@ route("POST", "/api/reprint", "user", async ({ env, request, user }) => {
   for (const g of groups.values()) {
     const tpl = await getTemplate(env, g.template_id);
     validateItems(tpl.cfg, g.items, JSON.parse(g.extra || "{}"));
-    const job = await env.DB.prepare(`INSERT INTO jobs(printer_id, user_id, template_id, extra, total, reprint) VALUES(?,?,?,?,?,1) RETURNING id`)
-      .bind(printerId, user.id, g.template_id, g.extra, g.items.length).first();
-    await insertPrints(env, job.id, g.items);
-    total += g.items.length; jobId = job.id;
+    jobId = await createJob(env, printerId, user.id, g.template_id, g.extra, g.items, 1);
+    total += g.items.length;
   }
   return json({ job_id: jobId, total });
 });
@@ -384,7 +389,7 @@ route("POST", "/api/users", "admin", async ({ env, request }) => {
   const b = await body(request);
   const name = str(b.name, 40), password = str(b.password, 100);
   if (!name) throw new HttpError(400, "Enter a name");
-  if (password.length < 4) throw new HttpError(400, "Password must be at least 4 characters");
+  if (password.length < MIN_PASSWORD) throw new HttpError(400, `Password must be at least ${MIN_PASSWORD} characters`);
   const salt = randHex(16);
   try {
     await env.DB.prepare(`INSERT INTO users(name, salt, hash, role) VALUES(?,?,?,?)`).bind(name, salt, await hashPassword(password, salt), b.role === "admin" ? "admin" : "staff").run();
@@ -399,7 +404,7 @@ route("PUT", "/api/users/:id", "admin", async ({ env, request, params, user }) =
   if (id === user.id && (b.active === false || (b.role && b.role !== "admin"))) throw new HttpError(400, "You can't remove your own admin access");
   if (b.password) {
     const pw = str(b.password, 100);
-    if (pw.length < 4) throw new HttpError(400, "Password must be at least 4 characters");
+    if (pw.length < MIN_PASSWORD) throw new HttpError(400, `Password must be at least ${MIN_PASSWORD} characters`);
     const salt = randHex(16);
     await env.DB.prepare(`UPDATE users SET salt = ?, hash = ?, fails = 0, locked_until = NULL WHERE id = ?`).bind(salt, await hashPassword(pw, salt), id).run();
     await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(id).run();
@@ -435,7 +440,7 @@ route("PUT", "/api/printers/:id", "admin", async ({ env, request, params }) => {
 route("DELETE", "/api/printers/:id", "admin", async ({ env, params }) => {
   const n = await env.DB.prepare(`SELECT COUNT(*) AS n FROM printers`).first();
   if (n.n <= 1) throw new HttpError(400, "Keep at least one printer");
-  await env.DB.prepare(`UPDATE prints SET status = 'cancelled' WHERE status = 'queued' AND job_id IN (SELECT id FROM jobs WHERE printer_id = ?)`).bind(+params.id).run();
+  await env.DB.prepare(`UPDATE prints SET status = 'cancelled' WHERE status IN ('queued','sending') AND job_id IN (SELECT id FROM jobs WHERE printer_id = ?)`).bind(+params.id).run();
   await env.DB.prepare(`DELETE FROM printers WHERE id = ?`).bind(+params.id).run();
   return json({ ok: true });
 });
@@ -495,11 +500,15 @@ route("POST", "/api/agent/poll", "agent", async ({ env, request }) => {
   ).bind(printer.id, CHUNK).all()).results;
   if (!cand.length) return json(reply);
   const jobId = cand[0].job_id;
-  const rows = cand.filter((r) => r.job_id === jobId);
-  await env.DB.batch([
-    env.DB.prepare(`UPDATE prints SET status = 'sending', sent_at = datetime('now') WHERE id IN (${marks(rows.length)})`).bind(...rows.map((r) => r.id)),
+  const picked = cand.filter((r) => r.job_id === jobId);
+  // Claim only labels still queued, so two agents polling at once never get the same label.
+  const [claim] = await env.DB.batch([
+    env.DB.prepare(`UPDATE prints SET status = 'sending', sent_at = datetime('now') WHERE id IN (${marks(picked.length)}) AND status = 'queued' RETURNING id`).bind(...picked.map((r) => r.id)),
     env.DB.prepare(`UPDATE jobs SET status = 'printing' WHERE id = ? AND status = 'queued'`).bind(jobId),
   ]);
+  const mine = new Set(claim.results.map((r) => r.id));
+  const rows = picked.filter((r) => mine.has(r.id));
+  if (!rows.length) return json(reply);
   const job = await env.DB.prepare(`SELECT template_id, extra FROM jobs WHERE id = ?`).bind(jobId).first();
   const tpl = await getTemplate(env, job.template_id);
   const extra = JSON.parse(job.extra || "{}");
