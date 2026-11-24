@@ -6,13 +6,27 @@ It runs on Cloudflare's free plan.
 
 ## Screenshots
 
-<!-- Add screenshots here, for example:
-![Print tab](docs/print.png)
-![Admin > Templates with label preview](docs/template.png)
-![A printed label](docs/label-photo.jpg)
--->
+These are from a local test run with made-up demo data (no real serials or staff).
 
-_Screenshots coming soon._
+**Print**: scan or type serials. The preview is drawn by the same engine that makes the printer commands. A serial printed before is marked in amber.
+
+![Print tab](docs/print.png)
+
+**History**: who printed what and when, with reprint.
+
+![History tab](docs/history.png)
+
+**Label template editor** with a live preview and a warning when bars get thin.
+
+![Template editor](docs/template.png)
+
+**Printer settings**: darkness, speed, offset, the "thin barcodes" stretch setting, and test prints.
+
+![Printer settings](docs/printers.png)
+
+**On a phone.**
+
+<img src="docs/print-phone.png" alt="Print tab on a phone" width="320">
 
 ## Why I built it
 
