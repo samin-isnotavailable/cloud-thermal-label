@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+.dev.vars
+agent/agent_config.json
+agent/agent.log
+__pycache__/
+.DS_Store
+*.zip
+CLAUDE.md
