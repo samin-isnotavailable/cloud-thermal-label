@@ -345,6 +345,9 @@ route("POST", "/api/reprint", "user", async ({ env, request, user }) => {
   for (const g of groups.values()) {
     const tpl = await getTemplate(env, g.template_id);
     validateItems(tpl.cfg, g.items, JSON.parse(g.extra || "{}"));
+  }
+  // Queue only after every group passed, so a failed check never leaves half a reprint queued.
+  for (const g of groups.values()) {
     jobId = await createJob(env, printerId, user.id, g.template_id, g.extra, g.items, 1);
     total += g.items.length;
   }
@@ -440,7 +443,7 @@ route("PUT", "/api/printers/:id", "admin", async ({ env, request, params }) => {
 route("DELETE", "/api/printers/:id", "admin", async ({ env, params }) => {
   const n = await env.DB.prepare(`SELECT COUNT(*) AS n FROM printers`).first();
   if (n.n <= 1) throw new HttpError(400, "Keep at least one printer");
-  await env.DB.prepare(`UPDATE prints SET status = 'cancelled' WHERE status IN ('queued','sending') AND job_id IN (SELECT id FROM jobs WHERE printer_id = ?)`).bind(+params.id).run();
+  await env.DB.prepare(`UPDATE prints SET status = 'cancelled', error = CASE WHEN status = 'sending' THEN 'Printer deleted while sending. May have printed.' ELSE error END WHERE status IN ('queued','sending') AND job_id IN (SELECT id FROM jobs WHERE printer_id = ?)`).bind(+params.id).run();
   await env.DB.prepare(`DELETE FROM printers WHERE id = ?`).bind(+params.id).run();
   return json({ ok: true });
 });

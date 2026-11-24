@@ -143,7 +143,7 @@ If the daily limit is ever reached, printing pauses until it resets (00:00 UTC).
 - The template preview uses a sample serial made only of digits, so it can look better than a real serial with letters.
 - Printer faults (paper out, cover open) are not yet shown on the web page.
 - There is no admin password reset in the UI yet.
-- Only the barcode engine has an automated test (`node test/engine.test.mjs`). The API and UI were tested with ad hoc scripts against `wrangler dev --local`.
+- `npm test` runs two tests: the barcode engine, and a race test that makes 10 agents poll at once and checks that no label is handed out twice. The rest of the API and the UI were tested with ad hoc scripts against `wrangler dev --local`.
 
 ## Tech
 
